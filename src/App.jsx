@@ -1,5 +1,22 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import html2canvas from 'html2canvas'
 import { Purchases } from '@revenuecat/purchases-js'
+import { DEFAULT_SOUL_MATRIX, mock_steam_injector } from './lib/steam_vault'
+import { SteamSoulScanner, GHOST_LOG_SCRIPTS } from './components/SteamSoulScanner'
+import DopamineImpactModal from './components/DopamineImpactModal'
+import MasterLoungePanel from './components/MasterLoungePanel'
+import HipSlopToast from './components/HipSlopToast'
+import { cyber_grade_allocator } from './lib/cyber_grade_allocator'
+import { forge_raw_ticket_hash } from './lib/master_lounge_vault'
+import {
+  pull_cached_soul_payload,
+  push_cached_soul_payload,
+  build_anchor_blob,
+  sync_master_flag_to_vault,
+  flash_purge_executor
+} from './lib/volatile_session_anchor'
+
+const cached_soul_payload_boot = pull_cached_soul_payload()
 
 const COSMETIC_POOL = [
   { id: 't_gacha_master', name: 'Master of Gacha', type: 'title', rarity: 'Legendary', style: 'text-yellow-400 font-extrabold uppercase tracking-widest drop-shadow-[0_0_8px_rgba(250,204,21,0.6)]' },
@@ -9,10 +26,48 @@ const COSMETIC_POOL = [
   { id: 'b_neon_pink', name: 'Hologram Pink Frame', type: 'border', rarity: 'Legendary', style: 'ring-4 ring-pink-500 ring-offset-2 ring-offset-slate-900 animate-pulse' },
   { id: 'b_sapphire_aura', name: 'Sapphire Aura Frame', type: 'border', rarity: 'Epic', style: 'ring-4 ring-blue-500 ring-offset-2 ring-offset-slate-900' },
   { id: 'b_emerald_circuit', name: 'Emerald Circuit Frame', type: 'border', rarity: 'Rare', style: 'ring-4 ring-emerald-500 ring-offset-2 ring-offset-slate-900' },
-  { id: 'a_neon_grid', name: 'Retro Neon Grid (Animated)', type: 'avatar', rarity: 'SSR', style: 'ring-4 ring-purple-500 ring-offset-2 ring-offset-slate-900', url: 'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExbTZlczhzaW5hNDUybG0wZnFxb2J1NW82czlzOHFhbmtobDJycHhweSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/xT9IgzoKnwFNmISR8I/giphy.gif' },
-  { id: 'a_space_voyager', name: 'Cosmic Voyager (Animated)', type: 'avatar', rarity: 'SSR', style: 'ring-4 ring-pink-500 ring-offset-2 ring-offset-slate-900', url: 'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExZ3AwajJnYXZ1ZW5tMXQ4ZW1ydXRjbjZtMGp4ZGN3Znp6ZHptenBrcSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/5t9wJjyHAOxvnIp5Y4/giphy.gif' },
-  { id: 'a_cyber_hacker', name: 'Hologram Hacker (Animated)', type: 'avatar', rarity: 'SSR', style: 'ring-4 ring-cyan-500 ring-offset-2 ring-offset-slate-900', url: 'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExbzh0N2sycG16cmw1eW9uNHB6M2M5Z295NWJyeDRqZnk0djV3c2c1YiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3oz8xALRf3liRfy2CI/giphy.gif' }
+  { id: 'a_neon_grid', name: 'Retro Neon Grid (Animated)', type: 'avatar', rarity: 'SSR', style: 'ring-4 ring-purple-500 ring-offset-2 ring-offset-slate-900', url: 'https://media.giphy.com/media/xT9IgzoKnwFNmISR8I/giphy.gif' },
+  { id: 'a_space_voyager', name: 'Cosmic Voyager (Animated)', type: 'avatar', rarity: 'SSR', style: 'ring-4 ring-pink-500 ring-offset-2 ring-offset-slate-900', url: 'https://media.giphy.com/media/5t9wJjyHAOxvnIp5Y4/giphy.gif' },
+  { id: 'a_cyber_hacker', name: 'Hologram Hacker (Animated)', type: 'avatar', rarity: 'SSR', style: 'ring-4 ring-cyan-500 ring-offset-2 ring-offset-slate-900', url: 'https://media.giphy.com/media/3oz8xALRf3liRfy2CI/giphy.gif' }
 ]
+
+const strip_oklch_poison = (cssChunk) =>
+  cssChunk
+    .replace(/oklch\([^)]*\)/gi, '#94a3b8')
+    .replace(/oklab\([^)]*\)/gi, '#94a3b8')
+    .replace(/color-mix\([^)]*\)/gi, '#94a3b8')
+
+const hydrate_capture_clone_doc = (clonedDoc) => {
+  const style_vault = []
+  document.querySelectorAll('style').forEach((node) => {
+    if (node.textContent) style_vault.push(strip_oklch_poison(node.textContent))
+  })
+  clonedDoc.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => node.remove())
+  const ink_node = clonedDoc.createElement('style')
+  ink_node.textContent = style_vault.join('\n')
+  clonedDoc.head.appendChild(ink_node)
+}
+
+const polish_capture_gradients = (clonedRoot) => {
+  clonedRoot.querySelectorAll('[class*="bg-clip-text"]').forEach((el) => {
+    el.style.background = 'none'
+    el.style.webkitBackgroundClip = 'border-box'
+    el.style.backgroundClip = 'border-box'
+    el.style.color = '#fbbf24'
+    el.style.webkitTextFillColor = '#fbbf24'
+  })
+}
+
+const resync_cosmetic_item = (item) => {
+  if (!item?.id) return item
+  const canon = COSMETIC_POOL.find((c) => c.id === item.id)
+  return canon ? { ...item, ...canon } : item
+}
+
+const flex_card_img_rescue = (e) => {
+  e.currentTarget.onerror = null
+  e.currentTarget.src = '/cyber_cat_avatar.png'
+}
 
 function usePremiumEnforcer() {
   const [customerInfo, setCustomerInfo] = useState(null)
@@ -78,6 +133,16 @@ function usePremiumEnforcer() {
     setLocalMasterActive(true)
   }
 
+  const imprintLocalMaster = (master_flag) => {
+    if (master_flag) {
+      localStorage.setItem('steam_customizer_master', '1')
+      setLocalMasterActive(true)
+    } else {
+      localStorage.removeItem('steam_customizer_master')
+      setLocalMasterActive(false)
+    }
+  }
+
   const isMaster = !!(customerInfo?.entitlements?.active?.['master'] || customerInfo?.entitlements?.all?.['master']?.isActive) || localMasterActive
 
   return {
@@ -89,7 +154,8 @@ function usePremiumEnforcer() {
     activatePurchases,
     logInUser,
     logOutUser,
-    persistMasterAccess
+    persistMasterAccess,
+    imprintLocalMaster
   }
 }
 
@@ -109,6 +175,24 @@ function App() {
   const [offeringPackages, setOfferingPackages] = useState([])
   const [paymentTunnelState, setPaymentTunnelState] = useState('idle')
   const [paymentFeedbackSlot, setPaymentFeedbackSlot] = useState(null)
+  const [loot_box_raffle_stamp, setLoot_box_raffle_stamp] = useState(() => cached_soul_payload_boot?.loot_box_raffle_stamp ?? null)
+  const [raffle_stamp_overlay, setRaffleStampOverlay] = useState(false)
+  const [hip_slop_toast, setHipSlopToast] = useState(null)
+  const [steam_persona_label, setSteamPersonaLabel] = useState(() => cached_soul_payload_boot?.steam_persona_label || 'CyberCat_404')
+  const [user_soul_matrix, setUserSoulMatrix] = useState(() => cached_soul_payload_boot?.user_soul_matrix || DEFAULT_SOUL_MATRIX)
+  const [volatile_price_snipes, setVolatilePriceSnipes] = useState(() => cached_soul_payload_boot?.volatile_price_snipes ?? [])
+  const [soul_nick_probe, setSoulNickProbe] = useState(() => cached_soul_payload_boot?.soul_nick_probe ?? '')
+  const [isScanComplete, setIsScanComplete] = useState(() => !!cached_soul_payload_boot?.isScanComplete)
+  const [active_scan_trigger, setActiveScanTrigger] = useState(false)
+  const [volatile_scan_monitor, setVolatileScanMonitor] = useState('idle')
+  const [ghost_log_ticker, setGhostLogTicker] = useState([])
+  const [dynamic_tier_payload, setDynamicTierPayload] = useState(() => cached_soul_payload_boot?.dynamic_tier_payload ?? null)
+  const [glitch_modal_state, setGlitchModalState] = useState(false)
+  const [neon_impact_flash, setNeonImpactFlash] = useState(false)
+  const flex_card_canvas_ref = useRef(null)
+  const ghost_log_interval_ref = useRef(null)
+  const pending_vault_payload_ref = useRef(null)
+  const anchor_write_lock = useRef(!!cached_soul_payload_boot)
 
   const {
     appUserId,
@@ -118,8 +202,14 @@ function App() {
     activatePurchases,
     logInUser,
     logOutUser,
-    persistMasterAccess
+    persistMasterAccess,
+    imprintLocalMaster
   } = usePremiumEnforcer()
+
+  useEffect(() => {
+    if (cached_soul_payload_boot?.isMaster) imprintLocalMaster(true)
+    anchor_write_lock.current = false
+  }, [])
 
   useEffect(() => {
     const apiKey = import.meta.env.VITE_REVENUECAT_API_KEY
@@ -131,19 +221,45 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (anchor_write_lock.current) return
+    const local_state_vault = build_anchor_blob({
+      soul_nick_probe,
+      isScanComplete,
+      isMaster,
+      loot_box_raffle_stamp,
+      steam_persona_label,
+      user_soul_matrix,
+      dynamic_tier_payload,
+      volatile_price_snipes
+    })
+    push_cached_soul_payload(local_state_vault)
+    sync_master_flag_to_vault(isMaster)
+  }, [
+    soul_nick_probe,
+    isScanComplete,
+    isMaster,
+    loot_box_raffle_stamp,
+    steam_persona_label,
+    user_soul_matrix,
+    dynamic_tier_payload,
+    volatile_price_snipes
+  ])
+
+  useEffect(() => {
     try {
       let loadedInventory = []
       const savedInv = localStorage.getItem('steam_customizer_inventory')
       if (savedInv) {
         const parsed = JSON.parse(savedInv)
         if (Array.isArray(parsed)) {
-          loadedInventory = parsed
-          setInventory(parsed)
+          loadedInventory = parsed.map(resync_cosmetic_item)
+          setInventory(loadedInventory)
         }
       }
       const resolveStoredItem = (id) => {
         if (!id) return null
-        return loadedInventory.find((i) => i.id === id) || COSMETIC_POOL.find((i) => i.id === id) || null
+        const hit = loadedInventory.find((i) => i.id === id) || COSMETIC_POOL.find((i) => i.id === id) || null
+        return resync_cosmetic_item(hit)
       }
       const titleId = localStorage.getItem('steam_customizer_equipped_title')
       const borderId = localStorage.getItem('steam_customizer_equipped_border')
@@ -259,7 +375,7 @@ function App() {
   }, [isMaster])
 
   const currentAvatarUrl = (equippedAvatar && (equippedAvatar.rarity !== 'SSR' || isMaster))
-    ? equippedAvatar.url
+    ? (resync_cosmetic_item(equippedAvatar)?.url ?? '/cyber_cat_avatar.png')
     : '/cyber_cat_avatar.png'
 
   const premiumGlowEffect = isMaster
@@ -297,6 +413,200 @@ function App() {
     }, 1200)
   }
 
+  const flex_story_nick = isScanComplete ? steam_persona_label : '???'
+
+  useEffect(() => {
+    return () => {
+      if (ghost_log_interval_ref.current) clearInterval(ghost_log_interval_ref.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hip_slop_toast) return undefined
+    const toast_decay_timer = setTimeout(() => setHipSlopToast(null), 2800)
+    return () => clearTimeout(toast_decay_timer)
+  }, [hip_slop_toast])
+
+  const harvest_vault_payload = async (nickLabel) => {
+    try {
+      return await mock_steam_injector(nickLabel)
+    } catch {
+      return {
+        matrix: DEFAULT_SOUL_MATRIX,
+        volatile_price_snipes: []
+      }
+    }
+  }
+
+  const seal_tier_to_profile = () => {
+    const nickLabel = soul_nick_probe.trim()
+    const tier_seal = dynamic_tier_payload
+    const vault_blob = pending_vault_payload_ref.current
+    setSteamPersonaLabel(nickLabel)
+    if (vault_blob?.matrix) {
+      setUserSoulMatrix({
+        archetype: tier_seal?.roast_line ?? vault_blob.matrix.archetype,
+        genre_bias: tier_seal?.tag_chip ?? vault_blob.matrix.genre_bias,
+        soul_sync_pct: vault_blob.matrix.soul_sync_pct,
+        vault_worth_krw: vault_blob.matrix.vault_worth_krw
+      })
+      setVolatilePriceSnipes(vault_blob.volatile_price_snipes ?? [])
+    }
+    setGlitchModalState(false)
+    setIsScanComplete(true)
+    setNeonImpactFlash(true)
+    setActiveTab('profile')
+    setTimeout(() => setNeonImpactFlash(false), 1100)
+  }
+
+  const fire_active_scan_trigger = () => {
+    if (!soul_nick_probe.trim() || active_scan_trigger) return
+    setIsScanComplete(false)
+    setGlitchModalState(false)
+    setActiveScanTrigger(true)
+    setVolatileScanMonitor('live')
+    setGhostLogTicker([GHOST_LOG_SCRIPTS[0]])
+    let log_cursor = 1
+    ghost_log_interval_ref.current = setInterval(() => {
+      setGhostLogTicker((prev) => [...prev, GHOST_LOG_SCRIPTS[log_cursor % GHOST_LOG_SCRIPTS.length]])
+      log_cursor += 1
+    }, 260)
+    setTimeout(async () => {
+      if (ghost_log_interval_ref.current) clearInterval(ghost_log_interval_ref.current)
+      setActiveScanTrigger(false)
+      setVolatileScanMonitor('idle')
+      const nickLabel = soul_nick_probe.trim()
+      const tier_roll = cyber_grade_allocator(nickLabel)
+      pending_vault_payload_ref.current = await harvest_vault_payload(nickLabel)
+      setDynamicTierPayload(tier_roll)
+      setGlitchModalState(true)
+    }, 1500)
+  }
+
+  const ssr_loadout_spotlight = [equippedAvatar, equippedTitle, equippedBorder]
+    .map((gear) => resync_cosmetic_item(gear))
+    .filter(
+      (gear) => gear && ((gear.type === 'avatar' && gear.rarity === 'SSR') || gear.rarity === 'Legendary' || (gear.type === 'border' && gear.rarity === 'Legendary'))
+    )
+
+  const triggerCardExport = async () => {
+    if (!isMaster || !flex_card_canvas_ref.current) return
+
+    const extraction_deck = flex_card_canvas_ref.current
+    const overlay_shield = extraction_deck.querySelector('.master-veil-blur')
+    const interaction_btn = extraction_deck.querySelector('.generate-gif-btn-trigger')
+
+    if (overlay_shield) overlay_shield.style.display = 'none'
+    if (interaction_btn) interaction_btn.style.display = 'none'
+
+    try {
+      const raw_matrix_canvas = await html2canvas(extraction_deck, {
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#0d0e12',
+        scale: 2,
+        logging: false,
+        width: extraction_deck.offsetWidth,
+        height: extraction_deck.offsetHeight,
+        onclone: (clonedDoc, clonedRoot) => {
+          hydrate_capture_clone_doc(clonedDoc)
+          polish_capture_gradients(clonedRoot)
+          clonedRoot.querySelectorAll('img').forEach((imgNode) => {
+            if (imgNode.src && !imgNode.src.startsWith(window.location.origin)) {
+              imgNode.crossOrigin = 'anonymous'
+            }
+          })
+        }
+      })
+
+      const toxic_vault_url = raw_matrix_canvas.toDataURL('image/png')
+      const phantom_anchor = document.createElement('a')
+
+      phantom_anchor.href = toxic_vault_url
+      phantom_anchor.download = `STEAM_MASTER_SOUL_${Date.now()}.png`
+
+      document.body.appendChild(phantom_anchor)
+      phantom_anchor.click()
+      document.body.removeChild(phantom_anchor)
+    } catch (matrix_panic_error) {
+      console.error(matrix_panic_error)
+    } finally {
+      if (overlay_shield) overlay_shield.style.display = ''
+      if (interaction_btn) interaction_btn.style.display = ''
+    }
+  }
+
+  const trigger_loot_box_raffle_fire = () => {
+    if (!isMaster || loot_box_raffle_stamp) return
+    setLoot_box_raffle_stamp(forge_raw_ticket_hash())
+    setRaffleStampOverlay(true)
+    setHipSlopToast({
+      tone: 'pink',
+      headline: 'RAFFLE STAMP SEALED',
+      detail: `티켓 #${forge_raw_ticket_hash()} · 이번 주 스팀 1만 원권 응모 봉인 완료`
+    })
+    setTimeout(() => setRaffleStampOverlay(false), 2400)
+  }
+
+  const copy_match_soul_target = (match_soul_target) => {
+    const friend_link_blob = match_soul_target.steam_friend_url
+    navigator.clipboard.writeText(friend_link_blob).then(() => {
+      setHipSlopToast({
+        tone: 'cyan',
+        headline: 'STEAM FRIEND LINK COPIED',
+        detail: `${match_soul_target.callsign} · ${friend_link_blob}`
+      })
+    }).catch(() => {
+      setHipSlopToast({
+        tone: 'pink',
+        headline: 'CLIPBOARD BYPASS',
+        detail: `수동 복사 → ${friend_link_blob}`
+      })
+    })
+  }
+
+  const matrix_wipe_trigger = () => {
+    flash_purge_executor()
+    imprintLocalMaster(false)
+    anchor_write_lock.current = true
+    setSoulNickProbe('')
+    setIsScanComplete(false)
+    setLoot_box_raffle_stamp(null)
+    setSteamPersonaLabel('CyberCat_404')
+    setUserSoulMatrix(DEFAULT_SOUL_MATRIX)
+    setVolatilePriceSnipes([])
+    setDynamicTierPayload(null)
+    setInventory([])
+    setEquippedTitle(null)
+    setEquippedBorder(null)
+    setEquippedAvatar(null)
+    setGlitchModalState(false)
+    setNeonImpactFlash(false)
+    setRaffleStampOverlay(false)
+    setActiveScanTrigger(false)
+    setVolatileScanMonitor('idle')
+    setGhostLogTicker([])
+    setShowUpgradeModal(false)
+    setPaymentTunnelState('idle')
+    setPaymentFeedbackSlot(null)
+    setActiveTab('profile')
+    anchor_write_lock.current = false
+    setHipSlopToast({
+      tone: 'pink',
+      headline: 'MATRIX WIPED',
+      detail: 'volatile_session_anchor purged · 스캔 전 상태로 롤백'
+    })
+  }
+
+  const enter_discord_party_room = (match_soul_target) => {
+    setHipSlopToast({
+      tone: 'purple',
+      headline: 'DISCORD VAULT HANDSHAKE',
+      detail: `${match_soul_target.discord_room_slug} 비공개 파티룸 입장 중...`
+    })
+    window.open(match_soul_target.discord_invite, '_blank', 'noopener,noreferrer')
+  }
+
   const equipCosmeticGear = (item) => {
     const isPremiumItem = (item.type === 'avatar' && item.rarity === 'SSR') || (item.type === 'title' && item.id === 't_gacha_master')
     if (isPremiumItem && !isMaster) {
@@ -325,6 +635,13 @@ function App() {
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center font-black text-sm tracking-wider shadow-lg shadow-cyan-500/20">S</div>
           <span className="font-semibold text-lg tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400">STEAM CUSTOMIZER</span>
+          <button
+            type="button"
+            onClick={matrix_wipe_trigger}
+            className="matrix_wipe_trigger_btn text-[7px] font-mono font-black tracking-[0.2em] text-slate-600 hover:text-red-400 border border-slate-800/80 hover:border-red-500/50 px-2 py-1 rounded-md uppercase transition-all"
+          >
+            데이터 리셋
+          </button>
         </div>
         
         <div className="flex flex-wrap items-center gap-3 bg-slate-900/90 px-4 py-2.5 rounded-2xl border border-slate-800/80 max-w-full md:max-w-2xl">
@@ -368,7 +685,21 @@ function App() {
         </div>
       </header>
 
-      <main className="w-full max-w-4xl px-4 py-8 flex-grow flex flex-col justify-start z-10">
+      <main className="w-full max-w-6xl px-4 py-8 flex-grow flex flex-col justify-start z-10">
+
+        {!loading && (
+          <div className="relative w-full">
+            <SteamSoulScanner
+              soul_nick_probe={soul_nick_probe}
+              onSoulNickProbe={setSoulNickProbe}
+              active_scan_trigger={active_scan_trigger}
+              onActiveScanTrigger={fire_active_scan_trigger}
+              volatile_scan_monitor={volatile_scan_monitor}
+              ghost_log_ticker={ghost_log_ticker}
+              isScanComplete={isScanComplete}
+            />
+          </div>
+        )}
         
         <div className="flex justify-center gap-2 mb-8 bg-slate-950/80 p-1.5 rounded-xl border border-slate-800/60 max-w-md mx-auto">
           <button 
@@ -411,10 +742,12 @@ function App() {
         ) : (
           <div className="transition-all duration-500">
             {activeTab === 'profile' && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+              <div className="flex flex-col gap-6 w-full">
+              <div className="flex flex-col xl:flex-row gap-8 items-start w-full">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start flex-1 min-w-0 w-full">
                 
                 <div className="md:col-span-2 relative">
-                  <div className={premiumGlowEffect}>
+                  <div className={`${premiumGlowEffect} ${neon_impact_flash ? 'neon_impact_flash' : ''}`}>
                     <div className="relative rounded-2xl overflow-hidden steam-panel-gradient p-6 md:p-8 flex flex-col md:flex-row gap-6 items-center md:items-start">
                       
                       {isMaster && (
@@ -429,7 +762,9 @@ function App() {
                         }`}>
                           <img 
                             src={currentAvatarUrl} 
-                            alt="Steam Cyber Avatar" 
+                            alt="Steam Cyber Avatar"
+                            crossOrigin="anonymous"
+                            onError={flex_card_img_rescue}
                             className="w-full h-full object-cover rounded-xl transition-transform duration-500 group-hover:scale-105"
                           />
                         </div>
@@ -440,25 +775,36 @@ function App() {
                       <div className="flex-1 flex flex-col justify-center md:justify-start text-center md:text-left gap-3 w-full">
                         <div className="flex flex-col md:flex-row items-center gap-2 md:gap-3 justify-center md:justify-start">
                           <h2 className="text-2xl md:text-3xl font-extrabold tracking-wide text-white drop-shadow-md">
-                            CyberCat_404
+                            {isScanComplete ? steam_persona_label : '???'}
                           </h2>
-                          <span className="text-xs bg-slate-800 border border-slate-700/80 px-2 py-0.5 rounded text-cyan-400 font-mono">
-                            LV.99
+                          <span className={`text-xs px-2 py-0.5 rounded font-mono font-black ${isScanComplete && dynamic_tier_payload ? 'cyber_grade_badge text-pink-300' : 'bg-slate-800 border border-slate-700/80 text-cyan-400'}`}>
+                            {isScanComplete && dynamic_tier_payload ? `LV.${dynamic_tier_payload.level_stamp}` : 'LV.--'}
                           </span>
                         </div>
 
-                        <div className="h-6 flex items-center justify-center md:justify-start">
-                          {equippedTitle ? (
+                        <div className="min-h-[52px] flex flex-col items-center md:items-start justify-center gap-1">
+                          {isScanComplete && dynamic_tier_payload ? (
+                            <>
+                              <span className={`text-base md:text-lg font-black tracking-wide dopamine_payload_reveal ${dynamic_tier_payload.flare_class}`}>
+                                {dynamic_tier_payload.grade_label}
+                              </span>
+                              <span className="text-[11px] text-fuchsia-300/90 italic dopamine_payload_reveal">
+                                {dynamic_tier_payload.roast_line}
+                              </span>
+                            </>
+                          ) : equippedTitle ? (
                             <span className={`text-sm tracking-wide ${equippedTitle.style}`}>
                               {equippedTitle.name}
                             </span>
                           ) : (
-                            <span className="text-sm text-slate-500 italic tracking-wider">칭호 없음</span>
+                            <span className="text-sm text-slate-500 italic tracking-wider">스캔 후 겜생 등급 표시</span>
                           )}
                         </div>
 
                         <p className="text-slate-400 text-xs md:text-sm max-w-md leading-relaxed mt-2 bg-slate-950/40 p-3 rounded-lg border border-slate-800/40">
-                          Hello, traveler. I am scanning the blockchain for retro game keys. Operating on fully decentralized Steam algorithms.
+                          {isScanComplete && dynamic_tier_payload
+                            ? `SteamSoulScanner 인증 완료 · ${dynamic_tier_payload.grade_label} 등급 프로필 동기화됨`
+                            : 'Hello, traveler. I am scanning the blockchain for retro game keys. Operating on fully decentralized Steam algorithms.'}
                         </p>
 
                         <div className="flex flex-wrap items-center gap-4 mt-3 justify-center md:justify-start text-xs text-slate-400 font-mono">
@@ -500,7 +846,7 @@ function App() {
                             <div className="flex items-center gap-3 flex-grow min-w-0">
                               <div className="w-10 h-10 rounded-md bg-slate-950 flex items-center justify-center p-0.5 border border-slate-800/80 flex-shrink-0 overflow-hidden">
                                 {item.type === 'avatar' ? (
-                                  <img src={item.url} className="w-full h-full object-cover rounded" alt="" />
+                                  <img src={resync_cosmetic_item(item)?.url ?? item.url} onError={flex_card_img_rescue} className="w-full h-full object-cover rounded" alt="" />
                                 ) : item.type === 'border' ? (
                                   <div className={`w-full h-full rounded border ${item.style} flex items-center justify-center p-1`}>
                                     <div className="w-3.5 h-3.5 bg-slate-900 rounded-sm" />
@@ -558,6 +904,133 @@ function App() {
                 </div>
 
               </div>
+
+              <div className="w-full xl:w-[300px] flex-shrink-0 flex flex-col gap-5 mx-auto xl:mx-0">
+                <div className="relative">
+                  <div
+                    ref={flex_card_canvas_ref}
+                    className={`relative w-full max-w-[280px] mx-auto aspect-[9/16] rounded-3xl overflow-hidden flex flex-col border border-purple-500/30 shadow-2xl shadow-purple-950/50 bg-gradient-to-b from-slate-900 via-slate-950 to-purple-950/80 transition-all duration-700 ${neon_impact_flash ? 'neon_impact_flash' : ''}`}
+                  >
+                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(127,0,255,0.25),transparent_55%)] pointer-events-none" />
+                    <div className="relative z-10 p-4 flex flex-col h-full">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-[9px] font-black tracking-[0.2em] text-pink-400 uppercase">Premium Social Card</span>
+                        <span className="text-[8px] font-mono text-cyan-400 bg-cyan-950/40 px-2 py-0.5 rounded-full border border-cyan-800/50">9:16</span>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-2 mb-3">
+                        <div className={`w-24 h-24 rounded-2xl bg-slate-950 p-1 shadow-xl ${equippedBorder ? equippedBorder.style : 'ring-2 ring-slate-700'}`}>
+                          <img src={currentAvatarUrl} alt="" crossOrigin="anonymous" onError={flex_card_img_rescue} className="w-full h-full object-cover rounded-xl" />
+                        </div>
+                        <h4 className={`text-lg font-black tracking-wide drop-shadow-lg ${isScanComplete ? 'text-white dopamine_payload_reveal' : 'text-slate-600'}`}>
+                          {flex_story_nick}
+                        </h4>
+                        {isScanComplete && dynamic_tier_payload ? (
+                          <div className="flex flex-col items-center gap-1 dopamine_payload_reveal">
+                            <span className={`text-sm font-black text-center leading-tight ${dynamic_tier_payload.flare_class}`}>
+                              {dynamic_tier_payload.grade_label}
+                            </span>
+                            <span className="text-[8px] font-mono text-cyan-400">LV.{dynamic_tier_payload.level_stamp}</span>
+                            <span className="text-[8px] text-slate-400 italic text-center px-2">{dynamic_tier_payload.roast_line}</span>
+                          </div>
+                        ) : equippedTitle ? (
+                          <span className={`text-[10px] ${equippedTitle.style}`}>{equippedTitle.name}</span>
+                        ) : null}
+                      </div>
+
+                      <div className="flex flex-wrap justify-center gap-1.5 mb-auto min-h-[52px]">
+                        {ssr_loadout_spotlight.length > 0 ? (
+                          ssr_loadout_spotlight.map((gear) => (
+                            <div key={gear.id} className="flex flex-col items-center gap-0.5 bg-slate-950/70 border border-amber-500/40 rounded-lg p-1.5 w-[72px]">
+                              {gear.type === 'avatar' ? (
+                                <img src={gear.url} alt="" crossOrigin="anonymous" onError={flex_card_img_rescue} className="w-8 h-8 rounded object-cover ring-1 ring-amber-400/60" />
+                              ) : (
+                                <div className={`w-8 h-8 rounded flex items-center justify-center text-[10px] font-black ${gear.type === 'title' ? 'bg-amber-950/50 text-amber-300' : 'bg-purple-950/50'}`}>
+                                  {gear.type === 'title' ? 'T' : '◈'}
+                                </div>
+                              )}
+                              <span className="text-[7px] font-bold text-amber-300 text-center line-clamp-2 leading-tight">{gear.name}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <span className="text-[9px] text-slate-500 italic text-center py-2">SSR 장비 미장착 — 가챠에서 획득 후 장착</span>
+                        )}
+                      </div>
+
+                      <div className={`mt-auto space-y-2.5 bg-slate-950/60 rounded-xl p-3 border border-slate-800/60 ${isScanComplete ? 'dopamine_payload_reveal' : ''}`}>
+                        {!isScanComplete ? (
+                          <div className="flex flex-col items-center justify-center gap-2 py-4">
+                            <span className="text-2xl text-slate-700">?</span>
+                            <span className="text-[9px] text-slate-600 font-mono tracking-wider">스캔 대기 중</span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-end justify-between gap-2">
+                              <span className="text-[8px] text-slate-500 font-mono uppercase tracking-wider">계정 가치</span>
+                              <span className="text-sm font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-amber-500">
+                                ₩{user_soul_matrix.vault_worth_krw.toLocaleString('ko-KR')}
+                              </span>
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center gap-2">
+                                <span className="text-[8px] text-purple-300 font-bold truncate">{user_soul_matrix.archetype}</span>
+                                <span className="text-[8px] font-mono text-pink-400 flex-shrink-0">{user_soul_matrix.soul_sync_pct}%</span>
+                              </div>
+                              <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                                <div className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 soul-bar-pulse" style={{ width: `${user_soul_matrix.soul_sync_pct}%` }} />
+                              </div>
+                              <div className="flex gap-1 flex-wrap">
+                                {user_soul_matrix.genre_bias.map((tag) => (
+                                  <span key={tag} className="text-[7px] px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono border border-cyan-900/50">{tag}</span>
+                                ))}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={triggerCardExport}
+                        disabled={!isMaster}
+                        className={`generate-gif-btn-trigger mt-3 w-full py-2.5 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all ${
+                          isMaster
+                            ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:brightness-110 shadow-lg shadow-purple-500/30'
+                            : 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                        }`}
+                      >
+                        Generate Premium GIF
+                      </button>
+                    </div>
+
+                    {!isMaster && isScanComplete && (
+                      <div className="absolute top-3 right-3 z-20 text-[7px] font-black tracking-widest text-purple-300 bg-purple-950/90 border border-purple-500/40 px-2 py-1 rounded-full">
+                        GIF · MASTER
+                      </div>
+                    )}
+                    {!isMaster && !isScanComplete && (
+                      <div className="flex-card-lock-shield absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/60 backdrop-blur-sm border border-slate-700/40">
+                        <span className="text-3xl text-slate-600 mb-2">?</span>
+                        <span className="text-[9px] font-mono text-slate-500 tracking-wider">상단 스캔 후解鎖</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <MasterLoungePanel
+                  isMaster={isMaster}
+                  isScanComplete={isScanComplete}
+                  volatile_price_snipes={volatile_price_snipes}
+                  loot_box_raffle_stamp={loot_box_raffle_stamp}
+                  raffle_stamp_overlay={raffle_stamp_overlay}
+                  onLootBoxRaffleFire={trigger_loot_box_raffle_fire}
+                  onCopyMatchSoulTarget={copy_match_soul_target}
+                  onEnterDiscordPartyRoom={enter_discord_party_room}
+                  flex_card_img_rescue={flex_card_img_rescue}
+                />
+              </div>
+              </div>
+              </div>
             )}
 
             {activeTab === 'gacha' && (
@@ -592,7 +1065,7 @@ function App() {
                         <div className="text-center p-1.5 flex flex-col items-center justify-center h-full w-full">
                           <span className="text-[8px] bg-red-600 text-white font-extrabold px-1 rounded animate-pulse mb-1">{gachaResult.rarity}</span>
                           {gachaResult.type === 'avatar' ? (
-                            <img src={gachaResult.url} className="w-10 h-10 object-cover rounded border border-slate-700" alt="" />
+                            <img src={resync_cosmetic_item(gachaResult)?.url ?? gachaResult.url} onError={flex_card_img_rescue} className="w-10 h-10 object-cover rounded border border-slate-700" alt="" />
                           ) : (
                             <span className="text-lg">🎁</span>
                           )}
@@ -633,7 +1106,7 @@ function App() {
                         <span className="text-[10px] bg-cyan-950/30 border border-cyan-800 px-2 py-0.5 rounded font-bold text-cyan-400 font-mono uppercase tracking-widest">{gachaResult.type}</span>
                       </div>
                       {gachaResult.type === 'avatar' && (
-                        <img src={gachaResult.url} className="w-14 h-14 object-cover rounded-xl border-2 border-purple-500 shadow-lg my-1" alt="" />
+                        <img src={resync_cosmetic_item(gachaResult)?.url ?? gachaResult.url} onError={flex_card_img_rescue} className="w-14 h-14 object-cover rounded-xl border-2 border-purple-500 shadow-lg my-1" alt="" />
                       )}
                       <h3 className={`text-lg font-black tracking-wide ${gachaResult.style}`}>
                         {gachaResult.name}
@@ -758,6 +1231,15 @@ function App() {
         )}
 
       </main>
+
+      <HipSlopToast hip_slop_toast={hip_slop_toast} />
+
+      <DopamineImpactModal
+        glitch_modal_state={glitch_modal_state}
+        dynamic_tier_payload={dynamic_tier_payload}
+        soul_nick_probe={soul_nick_probe}
+        onSealTierToProfile={seal_tier_to_profile}
+      />
 
       {showUpgradeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
