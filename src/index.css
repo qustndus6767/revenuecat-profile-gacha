@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@keyframes steam-neon-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes steam-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes gacha-shake {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  10% { transform: translate(-2px, -1px) rotate(-1deg); }
+  20% { transform: translate(-3px, 0px) rotate(1deg); }
+  30% { transform: translate(0px, 2px) rotate(0deg); }
+  40% { transform: translate(1px, -1px) rotate(1deg); }
+  50% { transform: translate(-1px, 2px) rotate(-1deg); }
+  60% { transform: translate(-3px, 1px) rotate(0deg); }
+  70% { transform: translate(2px, 1px) rotate(-1deg); }
+  80% { transform: translate(-1px, -1px) rotate(1deg); }
+  90% { transform: translate(2px, 2px) rotate(0deg); }
+}
+
+.animate-gacha-shake {
+  animation: gacha-shake 0.5s ease-in-out infinite;
+}
+
+.premiumGlowEffect {
+  position: relative;
+  z-index: 10;
+  overflow: hidden;
+}
+
+.premiumGlowEffect::before {
+  content: '';
+  position: absolute;
+  z-index: -2;
+  left: -50%;
+  top: -50%;
+  width: 200%;
+  height: 200%;
+  background: conic-gradient(
+    from 0deg,
+    #ff007f,
+    #7f00ff,
+    #00f0ff,
+    #ff007f
+  );
+  animation: steam-neon-spin 4s linear infinite;
+}
+
+.premiumGlowEffect::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 3px;
+  top: 3px;
+  width: calc(100% - 6px);
+  height: calc(100% - 6px);
+  background: #171a21;
+  border-radius: 14px;
+}
+
+.shimmer-text {
+  background: linear-gradient(90deg, #9333ea, #ec4899, #3b82f6, #9333ea);
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: steam-shimmer 3s linear infinite;
+}
+
+.steam-panel-gradient {
+  background: linear-gradient(135deg, rgba(27, 40, 56, 0.9) 0%, rgba(20, 29, 41, 0.95) 100%);
+}
+
+.steam-glow-border {
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.15), inset 0 0 10px rgba(0, 240, 255, 0.05);
+}
+
+.steam-premium-glow-border {
+  box-shadow: 0 0 25px rgba(236, 72, 153, 0.3), inset 0 0 15px rgba(139, 92, 246, 0.2);
+}
+
+.steam-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.steam-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 9999px;
+}
+
+.steam-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #00f0ff 0%, #7f00ff 50%, #ff007f 100%);
+  border-radius: 9999px;
+}
+
+.steam-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #00f0ff;
+}
+
