@@ -18,6 +18,7 @@ function usePremiumEnforcer() {
   const [customerInfo, setCustomerInfo] = useState(null)
   const [appUserId, setAppUserId] = useState('')
   const [loading, setLoading] = useState(true)
+  const [localMasterActive, setLocalMasterActive] = useState(false)
 
   const syncRevenueCatState = async () => {
     try {
@@ -26,6 +27,10 @@ function usePremiumEnforcer() {
         const info = await purchases.getCustomerInfo()
         setCustomerInfo(info)
         setAppUserId(purchases.getAppUserId())
+        if (info?.entitlements?.active?.['master'] || info?.entitlements?.all?.['master']?.isActive) {
+          localStorage.setItem('steam_customizer_master', '1')
+          setLocalMasterActive(true)
+        }
       }
     } catch (e) {
       console.error(e)
@@ -56,11 +61,24 @@ function usePremiumEnforcer() {
       const purchases = Purchases.getSharedInstance()
       const anonymousId = Purchases.generateRevenueCatAnonymousAppUserId()
       await purchases.changeUser(anonymousId)
+      localStorage.removeItem('steam_customizer_master')
+      setLocalMasterActive(false)
       await syncRevenueCatState()
     }
   }
 
-  const isMaster = !!(customerInfo?.entitlements?.active?.['master'] || customerInfo?.entitlements?.all?.['master']?.isActive)
+  useEffect(() => {
+    if (localStorage.getItem('steam_customizer_master') === '1') {
+      setLocalMasterActive(true)
+    }
+  }, [])
+
+  const persistMasterAccess = () => {
+    localStorage.setItem('steam_customizer_master', '1')
+    setLocalMasterActive(true)
+  }
+
+  const isMaster = !!(customerInfo?.entitlements?.active?.['master'] || customerInfo?.entitlements?.all?.['master']?.isActive) || localMasterActive
 
   return {
     customerInfo,
@@ -70,7 +88,8 @@ function usePremiumEnforcer() {
     syncRevenueCatState,
     activatePurchases,
     logInUser,
-    logOutUser
+    logOutUser,
+    persistMasterAccess
   }
 }
 
@@ -98,7 +117,8 @@ function App() {
     syncRevenueCatState,
     activatePurchases,
     logInUser,
-    logOutUser
+    logOutUser,
+    persistMasterAccess
   } = usePremiumEnforcer()
 
   useEffect(() => {
@@ -109,6 +129,51 @@ function App() {
       activatePurchases(apiKey, cachedUserId)
     }
   }, [])
+
+  useEffect(() => {
+    try {
+      let loadedInventory = []
+      const savedInv = localStorage.getItem('steam_customizer_inventory')
+      if (savedInv) {
+        const parsed = JSON.parse(savedInv)
+        if (Array.isArray(parsed)) {
+          loadedInventory = parsed
+          setInventory(parsed)
+        }
+      }
+      const resolveStoredItem = (id) => {
+        if (!id) return null
+        return loadedInventory.find((i) => i.id === id) || COSMETIC_POOL.find((i) => i.id === id) || null
+      }
+      const titleId = localStorage.getItem('steam_customizer_equipped_title')
+      const borderId = localStorage.getItem('steam_customizer_equipped_border')
+      const avatarId = localStorage.getItem('steam_customizer_equipped_avatar')
+      if (titleId) setEquippedTitle(resolveStoredItem(titleId))
+      if (borderId) setEquippedBorder(resolveStoredItem(borderId))
+      if (avatarId) setEquippedAvatar(resolveStoredItem(avatarId))
+    } catch (e) {
+      console.error(e)
+    }
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem('steam_customizer_inventory', JSON.stringify(inventory))
+  }, [inventory])
+
+  useEffect(() => {
+    if (equippedTitle) localStorage.setItem('steam_customizer_equipped_title', equippedTitle.id)
+    else localStorage.removeItem('steam_customizer_equipped_title')
+  }, [equippedTitle])
+
+  useEffect(() => {
+    if (equippedBorder) localStorage.setItem('steam_customizer_equipped_border', equippedBorder.id)
+    else localStorage.removeItem('steam_customizer_equipped_border')
+  }, [equippedBorder])
+
+  useEffect(() => {
+    if (equippedAvatar) localStorage.setItem('steam_customizer_equipped_avatar', equippedAvatar.id)
+    else localStorage.removeItem('steam_customizer_equipped_avatar')
+  }, [equippedAvatar])
 
   useEffect(() => {
     if (appUserId) {
@@ -160,6 +225,7 @@ function App() {
       }
       await Purchases.getSharedInstance().purchase({ rcPackage: targetPkg })
       await syncRevenueCatState()
+      persistMasterAccess()
       setPaymentTunnelState('success')
       setPaymentFeedbackSlot({
         status: 'success',
