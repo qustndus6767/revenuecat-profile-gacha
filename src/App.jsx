@@ -88,6 +88,8 @@ function App() {
   const [modalTargetItem, setModalTargetItem] = useState('')
   const [inputUserId, setInputUserId] = useState('')
   const [offeringPackages, setOfferingPackages] = useState([])
+  const [paymentTunnelState, setPaymentTunnelState] = useState('idle')
+  const [paymentFeedbackSlot, setPaymentFeedbackSlot] = useState(null)
 
   const {
     appUserId,
@@ -129,32 +131,73 @@ function App() {
     }
   }, [appUserId])
 
-  const executePremiumPurchase = async (pkg) => {
-    if (!Purchases.isConfigured()) return
-    try {
-      if (pkg) {
-        await Purchases.getSharedInstance().purchase({ rcPackage: pkg })
-      } else {
-        const offerings = await Purchases.getSharedInstance().getOfferings()
-        if (offerings.current?.availablePackages?.length > 0) {
-          await Purchases.getSharedInstance().purchase({ rcPackage: offerings.current.availablePackages[0] })
-        } else {
-          alert('No active offerings configured in RevenueCat dashboard. Please configure offerings or assign entitlement via customer dashboard.')
-        }
-      }
-      await syncRevenueCatState()
-      setShowUpgradeModal(false)
-    } catch (error) {
-      console.error(error)
+  const switchAppThemeTone = (masterActive) => {
+    if (masterActive) {
+      document.documentElement.classList.add('masterCyberpunkTheme')
+    } else {
+      document.documentElement.classList.remove('masterCyberpunkTheme')
     }
   }
+
+  const triggerPaymentTunnel = async (pkg) => {
+    if (!Purchases.isConfigured()) return
+    setPaymentTunnelState('pending')
+    setPaymentFeedbackSlot(null)
+    try {
+      let targetPkg = pkg
+      if (!targetPkg) {
+        const offerings = await Purchases.getSharedInstance().getOfferings()
+        targetPkg = offerings.current?.availablePackages?.[0] ?? null
+      }
+      if (!targetPkg) {
+        setPaymentFeedbackSlot({
+          status: 'error',
+          headline: 'NO OFFERING FOUND',
+          detail: 'RevenueCat 대시보드에 활성화된 Offering이 없습니다. 대시보드에서 Offering을 설정하거나 고객 패널에서 직접 Entitlement를 부여하세요.',
+        })
+        setPaymentTunnelState('idle')
+        return
+      }
+      await Purchases.getSharedInstance().purchase({ rcPackage: targetPkg })
+      await syncRevenueCatState()
+      setPaymentTunnelState('success')
+      setPaymentFeedbackSlot({
+        status: 'success',
+        headline: 'MASTER ACTIVATED',
+        detail: '결제가 완료되었습니다! Master 등급이 활성화되었으며 모든 SSR 아바타와 프리미엄 기능이 즉시 해제됩니다.',
+      })
+      setShowUpgradeModal(false)
+      switchAppThemeTone(true)
+    } catch (error) {
+      const isCancelled = error?.userCancelled === true || error?.code === 'PURCHASE_CANCELLED' || String(error?.message).toLowerCase().includes('cancel')
+      if (isCancelled) {
+        setPaymentTunnelState('idle')
+        setPaymentFeedbackSlot(null)
+        return
+      }
+      const sandboxHint = String(error?.message ?? '').toLowerCase().includes('sandbox') || String(error?.underlyingErrorMessage ?? '').toLowerCase().includes('sandbox')
+      setPaymentTunnelState('error')
+      setPaymentFeedbackSlot({
+        status: 'error',
+        headline: sandboxHint ? 'SANDBOX ERROR' : 'PAYMENT FAILED',
+        detail: sandboxHint
+          ? `[Sandbox] ${error?.message ?? '알 수 없는 오류'} — Stripe 테스트 카드(4242 4242 4242 4242)를 사용하고 있는지 확인하세요.`
+          : error?.message ?? '결제 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
+        code: error?.code ?? null,
+      })
+    }
+  }
+
+  useEffect(() => {
+    switchAppThemeTone(isMaster)
+  }, [isMaster])
 
   const currentAvatarUrl = (equippedAvatar && (equippedAvatar.rarity !== 'SSR' || isMaster))
     ? equippedAvatar.url
     : '/cyber_cat_avatar.png'
 
-  const premiumGlowEffect = isMaster 
-    ? 'premiumGlowEffect rounded-2xl p-[3px] steam-premium-glow-border transition-all duration-500' 
+  const premiumGlowEffect = isMaster
+    ? 'premiumGlowEffect rounded-2xl p-[3px] steam-premium-glow-border transition-all duration-500'
     : 'border-2 border-slate-700/60 rounded-2xl steam-glow-border bg-slate-900/80 transition-all duration-500'
 
   const triggerGachaRoll = () => {
@@ -203,10 +246,6 @@ function App() {
     } else if (item.type === 'avatar') {
       setEquippedAvatar(prev => prev?.id === item.id ? null : item)
     }
-  }
-
-  const syncEquippedAvatar = (item) => {
-    setEquippedAvatar(item)
   }
 
   return (
@@ -618,17 +657,33 @@ function App() {
                     </ul>
                   </div>
 
-                  <button 
-                    onClick={() => executePremiumPurchase(offeringPackages[0])}
-                    disabled={isMaster}
+                  <button
+                    onClick={() => triggerPaymentTunnel(offeringPackages[0] ?? null)}
+                    disabled={isMaster || paymentTunnelState === 'pending'}
                     className={`w-full py-4 px-6 rounded-xl font-black text-xs tracking-widest text-white transition-all shadow-lg ${
                       isMaster
-                        ? 'bg-gradient-to-r from-slate-800 to-slate-900 border border-slate-700 text-purple-400 shadow-none cursor-not-allowed'
-                        : 'bg-gradient-to-r from-purple-600 via-pink-600 to-pink-500 hover:brightness-110 shadow-purple-500/20 active:scale-[0.98]'
+                        ? 'bg-gradient-to-r from-slate-800 to-slate-900 border border-slate-700 text-purple-400 shadow-none cursor-not-allowed paymentSuccessFlare'
+                        : paymentTunnelState === 'pending'
+                          ? 'bg-gradient-to-r from-slate-700 to-slate-800 cursor-wait opacity-70'
+                          : 'bg-gradient-to-r from-purple-600 via-pink-600 to-pink-500 hover:brightness-110 shadow-purple-500/20 active:scale-[0.98]'
                     }`}
                   >
-                    {isMaster ? '구독 활성화 완료' : 'MASTER로 구독하기'}
+                    {isMaster ? '구독 활성화 완료 ✓' : paymentTunnelState === 'pending' ? 'PROCESSING...' : 'MASTER로 구독하기'}
                   </button>
+
+                  {paymentFeedbackSlot && (
+                    <div className={`w-full mt-3 p-3 rounded-xl border text-xs font-mono leading-relaxed ${
+                      paymentFeedbackSlot.status === 'success'
+                        ? 'bg-purple-950/30 border-purple-500/40 text-purple-300'
+                        : 'bg-red-950/30 border-red-500/40 text-red-300'
+                    }`}>
+                      <div className="font-black tracking-widest mb-1">{paymentFeedbackSlot.headline}</div>
+                      <div className="text-[10px] opacity-80">{paymentFeedbackSlot.detail}</div>
+                      {paymentFeedbackSlot.code && (
+                        <div className="text-[9px] opacity-50 mt-1">CODE: {paymentFeedbackSlot.code}</div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
               </div>
@@ -654,14 +709,30 @@ function App() {
             </div>
 
             <div className="flex flex-col gap-2.5 w-full mt-2">
-              <button 
-                onClick={() => executePremiumPurchase(offeringPackages[0])}
-                className="w-full py-3.5 px-6 rounded-xl font-black text-xs tracking-widest text-white bg-gradient-to-r from-purple-600 via-pink-600 to-pink-500 hover:brightness-110 active:scale-[0.98] transition-all shadow-lg shadow-purple-500/20"
+              <button
+                onClick={() => triggerPaymentTunnel(offeringPackages[0] ?? null)}
+                disabled={paymentTunnelState === 'pending'}
+                className={`w-full py-3.5 px-6 rounded-xl font-black text-xs tracking-widest text-white transition-all shadow-lg shadow-purple-500/20 ${
+                  paymentTunnelState === 'pending'
+                    ? 'bg-gradient-to-r from-slate-700 to-slate-800 cursor-wait opacity-70'
+                    : 'bg-gradient-to-r from-purple-600 via-pink-600 to-pink-500 hover:brightness-110 active:scale-[0.98]'
+                }`}
               >
-                MASTER 등급 구독하기 (₩4,900/월)
+                {paymentTunnelState === 'pending' ? 'PROCESSING...' : 'MASTER 등급 구독하기 (₩4,900/월)'}
               </button>
-              <button 
-                onClick={() => setShowUpgradeModal(false)}
+
+              {paymentFeedbackSlot?.status === 'error' && (
+                <div className="w-full p-3 rounded-xl border bg-red-950/30 border-red-500/40 text-red-300 text-xs font-mono">
+                  <div className="font-black tracking-widest mb-1">{paymentFeedbackSlot.headline}</div>
+                  <div className="text-[10px] opacity-80">{paymentFeedbackSlot.detail}</div>
+                  {paymentFeedbackSlot.code && (
+                    <div className="text-[9px] opacity-50 mt-1">CODE: {paymentFeedbackSlot.code}</div>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={() => { setShowUpgradeModal(false); setPaymentFeedbackSlot(null); setPaymentTunnelState('idle') }}
                 className="w-full py-3 px-6 rounded-xl font-bold text-xs tracking-wider bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all"
               >
                 나중에 하기

@@ -110,3 +110,63 @@
   background: #00f0ff;
 }
 
+@keyframes master-bg-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes master-grid-drift {
+  0% { background-position: 0 0; }
+  100% { background-position: 60px 60px; }
+}
+
+.masterCyberpunkTheme {
+  position: relative;
+}
+
+.masterCyberpunkTheme::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 15% 10%, rgba(127, 0, 255, 0.18) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 90%, rgba(255, 0, 127, 0.14) 0%, transparent 55%),
+    radial-gradient(ellipse at 50% 50%, rgba(88, 28, 235, 0.1) 0%, transparent 70%);
+  animation: master-bg-pulse 5s ease-in-out infinite;
+}
+
+.masterCyberpunkTheme::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(127, 0, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(127, 0, 255, 0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+  animation: master-grid-drift 8s linear infinite;
+}
+
+.masterCyberpunkTheme > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes payment-success-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(127, 0, 255, 0.4), 0 0 60px rgba(255, 0, 127, 0.2); }
+  50% { box-shadow: 0 0 40px rgba(127, 0, 255, 0.7), 0 0 100px rgba(255, 0, 127, 0.4); }
+}
+
+.paymentSuccessFlare {
+  animation: payment-success-glow 2s ease-in-out infinite;
+}
+
